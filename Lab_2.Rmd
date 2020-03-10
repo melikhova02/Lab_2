@@ -1,0 +1,254 @@
+---
+title: "Lab_2"
+author: "Мелихова И.С."
+date: "28 02 2020"
+output: html_document
+---
+
+Лабораторная работа 2
+
+Графические системы в R: пакеты base, lattice, ggplot2
+
+Задача:
+
+Построить коробчатые диаграммы суммарной массы поставок в сентябре-декабре по годам (пропуски, заменённые на модельные значения, Netweight.kg.model). Цветом показать четыре группы стран-поставщиков: США, страны латинской америки, страны ЕС и все остальные.
+
+Данные: импорт сливочного масла в РФ.
+
+Загружаем библиотеки.
+
+```{r}
+library('data.table')          # работаем с объектами "таблица данных"
+library('moments')             # коэффициенты асимметрии и эксцесса 
+library('lattice')
+library('ggplot2')
+library('dplyr')
+```
+
+загружаем файл с данными по импорту масла в РФ.
+
+```{r}
+fileURL <- 'https://raw.githubusercontent.com/aksyuk/R-data/master/COMTRADE/040510-Imp-RF-comtrade.csv'
+# создаём директорию для данных, если она ещё не существует:
+if (!file.exists('./data')) {
+  dir.create('./data')
+}
+# создаём файл с логом загрузок, если он ещё не существует:
+if (!file.exists('./data/download.log')) {
+  file.create('./data/download.log')
+}
+# загружаем файл, если он ещё не существует,
+#  и делаем запись о загрузке в лог:
+if (!file.exists('./data/040510-Imp-RF-comtrade.csv')) {
+  download.file(fileURL, './data/040510-Imp-RF-comtrade.csv')
+  # сделать запись в лог
+  write(paste('Файл "040510-Imp-RF-comtrade.csv" загружен', Sys.time()), 
+        file = './data/download.log', append = T)
+}
+# читаем данные из загруженного .csv во фрейм, если он ещё не существует
+if (!exists('DT.import')){
+  DT.import <- data.table(read.csv('./data/040510-Imp-RF-comtrade.csv', 
+                                   stringsAsFactors = F))
+}
+# предварительный просмотр
+DT.import <- DT.import[1:215]
+```
+
+Предварительный просмотр.
+
+```{r}
+dim(DT.import)            # размерность таблицы
+str(DT.import)            # структура (характеристики столбцов)
+DT.import          # удобный просмотр объекта data.table
+```
+
+В столбце Period сохраняем только номера месяцев, и выбираем из них: сентябрь, октябрь, ноябрь, декабрь.
+
+```{r}
+DT.import$Period <- (DT.import$Period) %% 100
+DT.import <- DT.import[DT.import$Period > 8,]
+```
+
+Заполнение пропусков с помощью модели регрессии.
+Чтобы нанести на график линию регрессии, нужно сначала её оценить. Сделаем это с помощью функции lm и сохраним модель в объекте fit.
+Полученная модель значима на уровне 0,01 (p-value для F-статистики < 0,01), как и параметры модели. Скорректированный R-квадрат равен 0,92. Построим график разброса переменных x (стоимость поставки) и y (масса поставки) с линией регрессии.
+Использовать эту модель для заполнения пропусков нет смысла: ошибка для наблюдений с пропусками будет велика. 
+
+```{r}
+DT.import[Netweight.kg == 0, Netweight.kg := NA]
+x <- DT.import$Trade.Value.USD
+y <- DT.import$Netweight.kg
+fit <- lm(y ~ x)
+# y[y == 0] <- NA
+# оценка регрессии с помощью
+# результаты
+summary(fit)
+# сохраняем R-квадрат
+R.sq <- summary(fit)$r.squared     
+# график разброса с линией регрессии
+# 1. делаем точки прозрачными, чтобы обозначить центр массы
+plot(x, 
+     y, 
+     xlab = 'Стоимость поставки, долл.США', 
+     ylab = 'Масса поставки, кг',
+     pch = 21, 
+     col = rgb(0, 0, 0, alpha = 0.4), 
+     bg = rgb(0, 0, 0, alpha = 0.4))
+# 2. добавляем прямую регрессии на график
+abline(fit, col = rgb(0, 0, 1), lwd = 2)
+# 3. добавляем название графика
+mtext(paste('Прямая линейная взаимосвязь, R^2=', 
+            round(R.sq*100, 1),
+            '%', sep = ''), 
+      side = 3, line = 1)
+# координаты пропущенных y по оси x
+NAs <- x[is.na(y)]
+# 4. отмечаем каким значениям x соответствуют пропущенные y
+points(x = NAs,
+       y = rep(0, length(NAs)), 
+       col = 'red', pch = '|')
+```
+
+```{r}
+# увеличение участка графика: добавляем xlim, ylim
+plot(x, 
+     y, 
+     xlim = c(0, 5000), 
+     ylim = c(0, 5000),
+     xlab = 'Стоимость поставки, долл.США', 
+     ylab = 'Масса поставки, кг',
+     pch = 21, 
+     col = rgb(0, 0, 0, alpha = 0.4), 
+     bg = rgb(0, 0, 0, alpha = 0.4))
+# линия регрессии
+abline(fit, col = rgb(0, 0, 1), lwd = 2)
+# координаты пропусков по X
+points(x = NAs, 
+       y = rep(0, length(NAs)), 
+       col = 'red', pch = '|')
+# пробуем регрессию на логарифмах
+fit.log <- lm(log(y)~log(x))
+# результаты
+summary(fit.log)
+# сохраняем R-квадрат
+R.sq.log <- summary(fit.log)$r.squared  
+```
+
+Попробуем построить модель парной линейной регрессии на логарифмах переменных.Здесь скорректированный R-квадрат выше (0,97). Модель и её параметры значимы. Построим график разброса. Эта модель больше подходит для аппроксимации пропущенных значений.
+
+```{r}
+# график разброса с линией регрессии (логарифмы)
+# 1. делаем точки прозрачными, чтобы обозначить центр массы
+plot(log(x), 
+     log(y), 
+     xlab = 'Логарифмы стоимости поставки', 
+     ylab = 'Логарифмы массы поставки',
+     pch = 21, 
+     col = rgb(0, 0, 0, alpha = 0.4), 
+     bg = rgb(0, 0, 0, alpha = 0.4))
+# 2. добавляем прямую регрессии на график
+abline(fit.log, col = rgb(0, 0, 1), lwd = 2)
+# 3. добавляем название графика
+mtext(paste('Прямая линейная взаимосвязь, R^2=',
+            round(R.sq.log*100, 1),
+            '%', sep = ''), 
+      side = 3, line = 1)
+# отмечаем каким значениям x соответствуют пропущенные y
+points(x = log(NAs), 
+       y = rep(0, length(NAs)), 
+       col = 'red', pch = '|')
+# новый столбец, в котором будут заполнены пропуски
+DT.import[, Netweight.kg.model := Netweight.kg]
+# прогноз по модели на логарифмах сохраняем как вектор
+y.model.log <- predict(fit.log, newdata = data.frame(x = NAs))
+# наносим прогнозы на график
+points(log(NAs), 
+       y.model.log, col = 'blue',
+       pch = '+', cex = 2)
+```
+
+
+```{r}
+# пересчитываем в исходные единицы измерения y
+y.model <- exp(y.model.log)
+# заполняем пропуски модельными значениями
+DT.import[is.na(Netweight.kg.model), Netweight.kg.model := round(y.model,0)]
+# смотрим результат
+DT.import[, Netweight.kg, Netweight.kg.model]
+DT.import[is.na(Netweight.kg), Netweight.kg.model , Trade.Value.USD]
+```
+
+Создадим новый столбец - new. Присвоим значения 0 - США, 1 - ЕС, 2 - остальные. Страны Латинской Америки включать не будем, так как они в данных отсутствуют. Зададим переменную-фактор: Страны.поставщики. Значения этой переменной возьмём из столбца new. Построим коробчатые диаграммы.
+
+```{r}
+DT.import$new = transmute(DT.import,
+                          new = DT.import$Reporter)
+DT.import$new[DT.import$new == "United States of America"] = 0
+DT.import$new[DT.import$new  ==  "EU-28"] = 1
+DT.import$new[DT.import$new  ==  "Armenia"] = 2
+DT.import$new[DT.import$new  ==  "Georgia"] = 2
+DT.import$new[DT.import$new  ==  "Kazakhstan"] = 2
+DT.import$new[DT.import$new  ==  "Belarus"] = 2
+DT.import$new[DT.import$new  ==  "Kyrgyzstan"] = 2
+DT.import$new[DT.import$new  ==  "Estonia"] = 2
+DT.import$new[DT.import$new  ==  "Ukraine"] = 2
+DT.import$new[DT.import$new  ==  "Azerbaijan"] = 2
+DT.import$new[DT.import$new  ==  "Lithuania"] = 2
+DT.import$new[DT.import$new  ==  "Latvia"] = 2
+DT.import$new[DT.import$new  ==  "Mongolia"] = 2
+DT.import$new[DT.import$new  ==  "United Arab Emirates"] = 2
+DT.import$new[DT.import$new  ==  "Slovenia"] = 2
+DT.import$new[DT.import$new  ==  "Russian Federation"] = 2
+DT.import[, Страны.поставщики:=factor(new, levels = c(0, 1 , 2),
+                                      labels = c('США','Cтраны ЕС','Остальные'))]
+```
+
+Построим график разброса base.
+
+```{r}
+
+boxplot(DT.import$Period ~ as.factor(DT.import$Year), 
+        boxwex = 0.25, at = 1:5 - 0.4,
+        subset = DT.import$new == 0, col = "yellow",
+        xlab = 'Год поставки',
+        ylab = 'Месяц поставки', yaxs = "i")
+boxplot(DT.import$Period ~ as.factor(DT.import$Year), 
+        boxwex = 0.25,at = 1:5 - 0.2,
+        add = TRUE,
+        subset = DT.import$new == 1, col = "orange")
+boxplot(DT.import$Period ~ as.factor(DT.import$Year), 
+        boxwex = 0.25,at = 1:5 + 0.2,
+        add = TRUE,
+        subset = DT.import$new == 2, col = "blue")
+legend(2, 15, c('США','Cтраны ЕС','Остальные'),
+       fill = c("yellow","orange","blue"))
+
+```
+
+Построим график разброса, система ggplot2. 
+
+```{r}
+gp <- ggplot(data = DT.import, aes(x = as.factor(Year),
+                                   y = Period,
+                                   color = Страны.поставщики))
+gp <- gp + geom_boxplot()
+gp <- gp + xlab('Год поставки')
+gp <- gp + ylab('Месяц поставки')
+gp
+```
+
+Построим график разброса, система lattice.
+
+```{r}
+bwplot( Period ~ Year,data = DT.import, groups = Страны.поставщики,
+        xlab = 'Год поставки',ylim=c(0, 12),
+        ylab = 'Месяц поставки', 
+        pch = "|", box.width = 1,
+        auto.key = list(points = FALSE, rectangles = TRUE, space ="right"),
+        panel = panel.superpose,
+        panel.groups = function(x, y, ..., group.number) {
+          panel.bwplot(x + (group.number-1.5)/3, y, ...)
+        })
+ 
+```
+ 
